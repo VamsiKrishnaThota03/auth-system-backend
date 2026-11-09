@@ -45,4 +45,13 @@ export class AuthController {
       next(error);
     }
   }
+
+  static async listUsers(_req: Request, res: Response, next: NextFunction) {
+    try {
+      const users = await AuthService.listUsers();
+      res.status(200).json({ status: 'success', data: { users } });
+    } catch (error) {
+      next(error);
+    }
+  }
 } 
