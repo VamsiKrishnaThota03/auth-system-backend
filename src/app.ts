@@ -1,25 +1,27 @@
-import express, { Request, Response, NextFunction, ErrorRequestHandler } from 'express';
+import express, { ErrorRequestHandler } from 'express';
 import cors from 'cors';
+import { corsOrigin } from './config/env';
 import { authRouter } from './routes/auth.routes';
-import { errorHandler } from './middlewares/error.middleware';
-import dotenv from 'dotenv';
+import { usersRouter } from './routes/users.routes';
+import { errorHandler, notFoundHandler } from './middlewares/error.middleware';
 
-dotenv.config();
+export function createApp() {
+  const app = express();
 
-const app = express();
+  app.disable('x-powered-by');
+  app.set('trust proxy', 1); // correct client IPs for rate limiting behind Render/Heroku-style proxies
+  app.use(cors({ origin: corsOrigin() }));
+  app.use(express.json({ limit: '10kb' }));
 
-// Middleware
-app.use(cors());
-app.use(express.json());
+  app.get('/health', (_req, res) => {
+    res.json({ status: 'ok' });
+  });
 
-// Routes
-app.use('/auth', authRouter);
+  app.use('/auth', authRouter);
+  app.use('/users', usersRouter);
 
-// Error handling
-app.use(errorHandler as ErrorRequestHandler);
+  app.use(notFoundHandler);
+  app.use(errorHandler as ErrorRequestHandler);
 
-const PORT = process.env.PORT || 3000;
-
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-}); 
+  return app;
+}
