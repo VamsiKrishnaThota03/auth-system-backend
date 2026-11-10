@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM node:20-alpine AS build
+FROM node:26-alpine AS build
 WORKDIR /app
 # openssl is required by Prisma's query engine.
 RUN apk add --no-cache openssl
@@ -12,7 +12,7 @@ COPY src ./src
 RUN npx prisma generate && npx tsc -p tsconfig.build.json
 RUN npm prune --omit=dev
 
-FROM node:20-alpine AS runtime
+FROM node:26-alpine AS runtime
 WORKDIR /app
 RUN apk add --no-cache openssl
 
