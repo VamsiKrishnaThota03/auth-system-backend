@@ -3,7 +3,10 @@ import { ZodError } from 'zod';
 import { Prisma } from '@prisma/client';
 
 export class AppError extends Error {
-  constructor(public statusCode: number, message: string) {
+  constructor(
+    public statusCode: number,
+    message: string,
+  ) {
     super(message);
     this.name = 'AppError';
   }
@@ -17,8 +20,8 @@ export const errorHandler = (
   err: Error & { type?: string; status?: number },
   _req: Request,
   res: Response,
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  _next: NextFunction
+
+  _next: NextFunction,
 ): void => {
   if (err instanceof AppError) {
     res.status(err.statusCode).json({ status: 'error', message: err.message });

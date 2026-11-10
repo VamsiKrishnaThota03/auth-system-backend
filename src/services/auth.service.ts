@@ -3,7 +3,13 @@ import jwt, { SignOptions } from 'jsonwebtoken';
 import type { User } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { getJwtSecret, JWT_EXPIRES_IN } from '../config/env';
-import { SignupInput, LoginInput, UserResponse, AuthResponse, TokenPayload } from '../types/auth.types';
+import {
+  SignupInput,
+  LoginInput,
+  UserResponse,
+  AuthResponse,
+  TokenPayload,
+} from '../types/auth.types';
 import { AppError } from '../middlewares/error.middleware';
 
 const SALT_ROUNDS = 10;

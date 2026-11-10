@@ -1,0 +1,163 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: test (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['20', '22']
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - run: npm ci
+      - run: npx prisma generate
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Check formatting
+        run: npm run format:check
+
+      - name: Test
+        run: npm test
+
+      - name: Coverage
+        if: matrix.node == '20'
+        run: npm run test:coverage
+
+  integration:
+    name: integration against real MySQL
+    runs-on: ubuntu-latest
+
+    services:
+      mysql:
+        image: mysql:8
+        env:
+          MYSQL_DATABASE: auth_test
+          MYSQL_ROOT_PASSWORD: rootpw
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      DATABASE_URL: mysql://root:rootpw@127.0.0.1:3306/auth_test
+      JWT_SECRET: ci-only-secret-that-is-long-enough
+      HOST: 127.0.0.1
+      PORT: '3000'
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - run: npx prisma migrate deploy
+      - run: npm run build
+
+      - name: Sign up, log in and read /auth/me against real MySQL
+        run: |
+          set -euo pipefail
+          node dist/server.js > server.log 2>&1 & SERVER_PID=$!
+          trap 'kill $SERVER_PID 2>/dev/null || true' EXIT
+
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:3000/health > /dev/null && break
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:3000/health | grep -q '"status":"ok"'
+
+          # Readiness must be genuinely green now that MySQL is reachable.
+          curl -fsS http://127.0.0.1:3000/health/ready | tee /dev/stderr | grep -q '"status":"ready"'
+
+          body='{"name":"CI User","email":"ci@example.test","password":"Passw0rd!"}'
+          token=$(curl -fsS -X POST http://127.0.0.1:3000/auth/signup \
+            -H 'Content-Type: application/json' -d "$body" \
+            | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{const b=JSON.parse(s);console.log(b.data.token||b.token||'')})")
+          test -n "$token" || { echo "::error::no token returned"; cat server.log; exit 1; }
+
+          curl -fsS http://127.0.0.1:3000/auth/me -H "Authorization: Bearer $token" \
+            | tee /dev/stderr | grep -q 'ci@example.test'
+
+          # The password hash must never appear in a response. Written as an
+          # `if` because `grep -q X && fail` returns grep's non-zero status on
+          # the success path, which `set -e` would treat as a failure.
+          if curl -fsS http://127.0.0.1:3000/auth/me -H "Authorization: Bearer $token" | grep -q '"password"'; then
+            echo "::error::password hash leaked in /auth/me"
+            exit 1
+          fi
+
+          # An anonymous call must be rejected.
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/auth/me)
+          test "$code" = "401" || { echo "::error::anonymous /auth/me returned $code"; exit 1; }
+          echo "integration OK"
+
+      - name: Graceful shutdown on SIGTERM
+        run: |
+          set -euo pipefail
+          PORT=3001 node dist/server.js & SERVER_PID=$!
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:3001/health > /dev/null && break
+            sleep 1
+          done
+          kill -TERM $SERVER_PID
+          for i in $(seq 1 15); do
+            if ! kill -0 $SERVER_PID 2>/dev/null; then echo "exited cleanly"; exit 0; fi
+            sleep 1
+          done
+          echo "::error::server did not shut down on SIGTERM"
+          exit 1
+
+  docker:
+    name: image builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: auth-system-backend:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Image refuses to start without a strong JWT_SECRET
+        run: |
+          set +e
+          output=$(docker run --rm -e DATABASE_URL=mysql://x:y@127.0.0.1:1/z \
+            auth-system-backend:ci 2>&1)
+          status=$?
+          set -e
+          echo "$output"
+          test "$status" -ne 0 || { echo "::error::started without JWT_SECRET"; exit 1; }
+          echo "$output" | grep -q "JWT_SECRET" \
+            || { echo "::error::expected a JWT_SECRET error"; exit 1; }

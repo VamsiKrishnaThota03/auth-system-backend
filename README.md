@@ -6,6 +6,10 @@ A JWT authentication REST API built with Express, TypeScript, Prisma and MySQL.
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
 ![Express](https://img.shields.io/badge/Express-000000?logo=express&logoColor=white)
 ![Prisma](https://img.shields.io/badge/Prisma-2D3748?logo=prisma&logoColor=white)
+
+[![CI](https://github.com/VamsiKrishnaThota03/auth-system-backend/actions/workflows/ci.yml/badge.svg)](https://github.com/VamsiKrishnaThota03/auth-system-backend/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/VamsiKrishnaThota03/auth-system-backend/actions/workflows/codeql.yml/badge.svg)](https://github.com/VamsiKrishnaThota03/auth-system-backend/actions/workflows/codeql.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![MySQL](https://img.shields.io/badge/MySQL-4479A1?logo=mysql&logoColor=white)
 
 ## Overview
@@ -88,7 +92,8 @@ Copy `.env.example` to `.env`:
 |-------------------|----------|----------------------------------------------|---------|
 | `DATABASE_URL`    | Yes | MySQL connection string used by Prisma       | `mysql://<user>:<password>@localhost:3306/<db>` |
 | `JWT_SECRET`      | Yes | Secret used to sign and verify JWTs, at least 16 characters | `openssl rand -hex 32` |
-| `PORT`            | No  | HTTP port (default `3000`)                   | `3000` |
+| `PORT`            | No  | HTTP port (default `3000`), validated as an integer 1-65535 | `3000` |
+| `HOST`            | No  | Bind address. Defaults to `127.0.0.1`, or `0.0.0.0` when a managed-platform marker (`RENDER`, `FLY_APP_NAME`, `RAILWAY_ENVIRONMENT`, `DYNO`) is present | `0.0.0.0` |
 | `JWT_EXPIRES_IN`  | No  | Token lifetime (default `24h`)               | `2h` |
 | `CORS_ORIGIN`     | No  | Comma-separated allowed origins; unset allows any origin | `https://app.example.com` |
 | `AUTH_RATE_LIMIT` | No  | Login/sign-up requests per IP per 15 minutes (default `20`) | `20` |
@@ -113,9 +118,27 @@ npm run build
 npm start
 
 # Tests and type checking
-npm test
+npm test                # 11 tests
+npm run test:coverage
 npm run typecheck
+npm run lint
+npm run format:check
 ```
+
+### Docker
+
+```bash
+printf 'MYSQL_PASSWORD=%s\nJWT_SECRET=%s\n' \
+  "$(openssl rand -hex 16)" "$(openssl rand -hex 32)" > .env
+
+docker compose up --build
+```
+
+Brings up MySQL, applies the Prisma migrations, then starts the API. Both
+published ports bind to `127.0.0.1`, so neither is reachable from your network,
+and Compose fails fast with a named error if either variable is missing. The
+image is multi-stage, runs as the unprivileged `node` user and carries no dev
+dependencies.
 
 ## API
 
@@ -139,8 +162,27 @@ curl -X POST http://localhost:3000/auth/login \
 curl http://localhost:3000/auth/me -H "Authorization: Bearer <token>"
 ```
 
+## Health probes
+
+| Probe | Touches the database? | Purpose |
+| --- | --- | --- |
+| `GET /health` | No | Liveness. A transient database blip should not make a platform restart a healthy process. |
+| `GET /health/ready` | Yes, `SELECT 1` | Readiness. Answers 503 with `Retry-After: 30` when MySQL is unreachable. |
+
+## Continuous integration
+
+| Job | What it proves |
+| --- | --- |
+| `test` (Node 20, 22) | Typecheck, ESLint, Prettier, 11 tests, plus coverage on 20 |
+| `integration` | Boots the real server against a MySQL 8 service container, applies the migrations, then signs up, logs in and reads `/auth/me` over HTTP; asserts readiness turns green, that the password hash never appears in a response, that an anonymous `/auth/me` gets 401, and that `SIGTERM` exits cleanly |
+| `docker` | The image builds and exits non-zero without a strong `JWT_SECRET` |
+
+CodeQL runs weekly and on every push; Dependabot groups weekly patch/minor
+bumps.
+
 ## Known limitations
 
 - Tokens are stateless: there is no logout, refresh token or revocation list, and a role change only takes effect on the next login.
 - The rate limiter keeps counts in memory, so limits are per process and reset on restart.
-- The tests mock Prisma; the MySQL migration itself is not exercised in CI.
+- The unit tests mock Prisma. The `integration` CI job covers the gap by running the real migrations and a full signup/login/me round trip against MySQL 8.
+- `CORS_ORIGIN` unset allows any origin. That is safe here specifically because this API authenticates with a bearer token and sets no cookies, so a hostile page has no ambient credential to abuse. If cookie auth is ever added, this must become an explicit allowlist — and `credentials: true` must never be combined with reflecting the caller's origin.

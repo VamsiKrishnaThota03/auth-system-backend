@@ -1,0 +1,49 @@
+# Local development stack: MySQL + the auth API.
+#
+# Both published ports are bound to 127.0.0.1, so nothing is reachable from the
+# local network. The API reaches MySQL over the compose network on the `db`
+# hostname; the database publish is only a convenience for a SQL client.
+#
+#   printf 'MYSQL_PASSWORD=%s\nJWT_SECRET=%s\n' \
+#     "$(openssl rand -hex 16)" "$(openssl rand -hex 32)" > .env
+#   docker compose up --build
+
+services:
+  db:
+    image: mysql:8
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: auth
+      MYSQL_USER: auth
+      # No defaults: compose refuses to start until these are set in .env.
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD in .env}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_PASSWORD:?set MYSQL_PASSWORD in .env}
+    ports:
+      - "127.0.0.1:3306:3306"
+    volumes:
+      - mysqldata:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3000
+      DATABASE_URL: mysql://auth:${MYSQL_PASSWORD:?set MYSQL_PASSWORD in .env}@db:3306/auth
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env (openssl rand -hex 32)}
+    ports:
+      - "127.0.0.1:3000:3000"
+    # Apply migrations before serving, so a fresh database works out of the box.
+    command: sh -c "npx prisma migrate deploy && node dist/server.js"
+
+volumes:
+  mysqldata:
