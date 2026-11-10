@@ -7,8 +7,8 @@ A JWT authentication REST API built with Express, TypeScript, Prisma and MySQL.
 ![Express](https://img.shields.io/badge/Express-000000?logo=express&logoColor=white)
 ![Prisma](https://img.shields.io/badge/Prisma-2D3748?logo=prisma&logoColor=white)
 
-[![CI](https://github.com/VamsiKrishnaThota03/auth-system-backend/actions/workflows/ci.yml/badge.svg)](https://github.com/VamsiKrishnaThota03/auth-system-backend/actions/workflows/ci.yml)
-[![CodeQL](https://github.com/VamsiKrishnaThota03/auth-system-backend/actions/workflows/codeql.yml/badge.svg)](https://github.com/VamsiKrishnaThota03/auth-system-backend/actions/workflows/codeql.yml)
+[![CI](https://github.com/VamsiKrishnaThota03/jwt-auth-api/actions/workflows/ci.yml/badge.svg)](https://github.com/VamsiKrishnaThota03/jwt-auth-api/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/VamsiKrishnaThota03/jwt-auth-api/actions/workflows/codeql.yml/badge.svg)](https://github.com/VamsiKrishnaThota03/jwt-auth-api/actions/workflows/codeql.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![MySQL](https://img.shields.io/badge/MySQL-4479A1?logo=mysql&logoColor=white)
 
@@ -79,7 +79,7 @@ This is a small backend that handles user sign-up, login, fetching the current u
 ### Install
 
 ```bash
-git clone https://github.com/VamsiKrishnaThota03/auth-system-backend.git
+git clone https://github.com/VamsiKrishnaThota03/jwt-auth-api.git
 cd auth-system-backend
 npm install
 ```
